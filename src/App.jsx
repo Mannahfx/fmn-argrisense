@@ -7,8 +7,33 @@ let _model = null
 
 async function loadModel() {
   if (_model) return _model
-  _model = await window.tf.loadLayersModel('/cassava_tfjs_model/model.json')
+  const tf = window.tf
+  try {
+    // Try loadLayersModel first (standard format)
+    _model = await tf.loadLayersModel('/cassava_tfjs_model/model.json')
+  } catch(e1) {
+    try {
+      // Fallback: try loadGraphModel (SavedModel/GraphDef format)
+      _model = await tf.loadGraphModel('/cassava_tfjs_model/model.json')
+    } catch(e2) {
+      throw new Error('Could not load model: ' + e1.message)
+    }
+  }
   return _model
+}
+
+// GraphModel predict wrapper — handles both model types
+async function predictWithModel(model, tensor) {
+  try {
+    // LayersModel
+    const out = model.predict(tensor)
+    return Array.from(out.dataSync())
+  } catch {
+    // GraphModel
+    const out = model.execute(tensor)
+    if (Array.isArray(out)) return Array.from(out[0].dataSync())
+    return Array.from(out.dataSync())
+  }
 }
 
 async function runAI(file) {
@@ -22,9 +47,8 @@ async function runAI(file) {
         canvas.width = 224; canvas.height = 224
         canvas.getContext('2d').drawImage(img, 0, 0, 224, 224)
         const tensor = tf.browser.fromPixels(canvas).toFloat().expandDims(0)
-        const preds  = model.predict(tensor)
-        const scores = Array.from(preds.dataSync())
-        tensor.dispose(); preds.dispose()
+        const scores = await predictWithModel(model, tensor)
+        tensor.dispose()
         URL.revokeObjectURL(img.src)
         const top = scores.indexOf(Math.max(...scores))
         resolve({ diseaseId: CLASS_MAP[top] || 'healthy', confidence: Math.round(scores[top] * 100), scores, allScores: Object.fromEntries(Object.entries(CLASS_MAP).map(([i,id])=>[id, Math.round(scores[i]*100)])) })
