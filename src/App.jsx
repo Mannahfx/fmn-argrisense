@@ -27,7 +27,7 @@ async function runAI(file) {
         tensor.dispose(); preds.dispose()
         URL.revokeObjectURL(img.src)
         const top = scores.indexOf(Math.max(...scores))
-        resolve({ diseaseId: CLASS_MAP[top] || 'healthy', confidence: Math.round(scores[top] * 100), scores })
+        resolve({ diseaseId: CLASS_MAP[top] || 'healthy', confidence: Math.round(scores[top] * 100), scores, allScores: Object.fromEntries(Object.entries(CLASS_MAP).map(([i,id])=>[id, Math.round(scores[i]*100)])) })
       } catch(e) { reject(e) }
     }
     img.onerror = reject
@@ -169,20 +169,29 @@ function ScanScreen({ go, startAnalyzing }) {
     const file = e.target.files[0]
     if (!file) return
     setPreview(URL.createObjectURL(file))
-    if (!window.tf) { startAnalyzing('cmd', null); return }
+
+    if (!window.tf) {
+      setStatus('error')
+      setMsg('TF.js not loaded — try refreshing')
+      return
+    }
     try {
       setStatus('loading'); setMsg('Loading AI model...')
+      await loadModel()
+      setMsg('Analyzing your photo...')
       const result = await runAI(file)
-      setStatus('ready');   setMsg('')
-      startAnalyzing(result.diseaseId, result.confidence)
+      console.log('AI scores:', result.scores.map((s,i)=>`${CLASS_MAP[i]}:${Math.round(s*100)}%`).join(' | '))
+      setStatus('ready'); setMsg('')
+      startAnalyzing(result.diseaseId, result.confidence, result.allScores)
     } catch(err) {
-      console.error(err)
-      setStatus('error'); setMsg('')
-      startAnalyzing('cmd', null)
+      console.error('AI Error:', err)
+      setStatus('error')
+      setMsg('AI error: ' + (err.message||'Unknown error'))
+      setTimeout(()=>setMsg(''), 5000)
     }
   }
 
-  const statusLabel = status==='ready' ? '🟢 AI Model Ready' : status==='loading' ? '🟡 Analyzing...' : status==='error' ? '🔴 Fallback mode' : '📷 Upload a cassava leaf photo'
+  const statusLabel = status==='ready' ? '🟢 AI Model Ready' : status==='loading' ? '🟡 ' + (msg||'Analyzing...') : status==='error' ? '🔴 AI Error — check console' : '📷 Upload a cassava leaf photo'
 
   return (
     <div className="screen fade-in">
@@ -277,7 +286,7 @@ function AnalyzingScreen() {
 }
 
 // ── DIAGNOSIS ────────────────────────────────────────────────────────────────
-function DiagnosisScreen({ go, diseaseId, aiConfidence }) {
+function DiagnosisScreen({ go, diseaseId, aiConfidence, allScores }) {
   const d = DISEASES.find(x=>x.id===diseaseId) || DISEASES[4]
   const conf = aiConfidence != null ? aiConfidence : d.confidence
   const isReal = aiConfidence != null
@@ -320,6 +329,24 @@ function DiagnosisScreen({ go, diseaseId, aiConfidence }) {
             </div>
           ))}
         </div>
+        {allScores && (
+          <div className="card" style={{marginBottom:10}}>
+            <div style={{fontWeight:700,fontSize:13,marginBottom:10}}>🤖 AI Confidence Breakdown</div>
+            {Object.entries(allScores).sort(([,a],[,b])=>b-a).map(([id,pct])=>{
+              const d2=DISEASES.find(x=>x.id===id)||{name:id,color:'#888',icon:'🌿'}
+              return (
+                <div key={id} style={{display:'flex',alignItems:'center',gap:8,marginBottom:7}}>
+                  <span style={{fontSize:16,width:24}}>{d2.icon}</span>
+                  <span style={{fontSize:12,color:'var(--text2)',width:160,flexShrink:0}}>{d2.name}</span>
+                  <div style={{flex:1,height:8,background:'#F0F0F0',borderRadius:4,overflow:'hidden'}}>
+                    <div style={{height:'100%',width:`${pct}%`,background:d2.color,borderRadius:4,transition:'width 0.5s'}}/>
+                  </div>
+                  <span style={{fontSize:12,fontWeight:700,color:d2.color,width:34,textAlign:'right'}}>{pct}%</span>
+                </div>
+              )
+            })}
+          </div>
+        )}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
           <button onClick={()=>go('treatment',{diseaseId})} className="btn btn-primary"><Ic n="medkit" s={15} c="white"/>Treatment</button>
           <button onClick={()=>go('products',{diseaseId})} className="btn btn-outline"><Ic n="flask" s={15} c="var(--blue)"/>Products</button>
@@ -777,11 +804,11 @@ export default function App() {
 
   function go(s, p={}) { setScreen(s); setParams(p) }
 
-  function startAnalyzing(diseaseId, confidence=null) {
+  function startAnalyzing(diseaseId, confidence=null, allScores=null) {
     setAnalyzing(true)
     setTimeout(() => {
       setAnalyzing(false)
-      go('diagnosis', { diseaseId, aiConfidence: confidence })
+      go('diagnosis', { diseaseId, aiConfidence: confidence, allScores })
     }, 2500)
   }
 
@@ -795,7 +822,7 @@ export default function App() {
     switch(screen) {
       case 'home':      return <HomeScreen {...p}/>
       case 'scan':      return <ScanScreen {...p} startAnalyzing={startAnalyzing}/>
-      case 'diagnosis': return <DiagnosisScreen {...p} diseaseId={params.diseaseId} aiConfidence={params.aiConfidence}/>
+      case 'diagnosis': return <DiagnosisScreen {...p} diseaseId={params.diseaseId} aiConfidence={params.aiConfidence} allScores={params.allScores}/>
       case 'treatment': return <TreatmentScreen {...p} diseaseId={params.diseaseId}/>
       case 'products':  return <ProductsScreen  {...p} diseaseId={params.diseaseId}/>
       case 'reminders': return <RemindersScreen {...p}/>
