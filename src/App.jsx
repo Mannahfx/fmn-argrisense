@@ -11,29 +11,29 @@ async function loadModel() {
   return _model
 }
 
-async function predictWithModel(model, tensor) {
-  const out = model.predict(tensor)
-  const scores = Array.from(out.dataSync())
-  out.dispose()
-  return scores
-}
-
 async function runAI(file) {
   const tf = window.tf
   const model = await loadModel()
   return new Promise((resolve, reject) => {
     const img = new Image()
-    img.onload = () => {
+    img.onload = async () => {
       try {
         const canvas = document.createElement('canvas')
         canvas.width = 224; canvas.height = 224
         canvas.getContext('2d').drawImage(img, 0, 0, 224, 224)
         const tensor = tf.browser.fromPixels(canvas).toFloat().expandDims(0)
-        const scores = await predictWithModel(model, tensor)
+        const out = model.predict(tensor)
+        const scores = Array.from(out.dataSync())
         tensor.dispose()
+        out.dispose()
         URL.revokeObjectURL(img.src)
         const top = scores.indexOf(Math.max(...scores))
-        resolve({ diseaseId: CLASS_MAP[top] || 'healthy', confidence: Math.round(scores[top] * 100), scores, allScores: Object.fromEntries(Object.entries(CLASS_MAP).map(([i,id])=>[id, Math.round(scores[i]*100)])) })
+        resolve({
+          diseaseId: CLASS_MAP[top] || 'healthy',
+          confidence: Math.round(scores[top] * 100),
+          scores,
+          allScores: Object.fromEntries(Object.entries(CLASS_MAP).map(([i,id])=>[id, Math.round(scores[i]*100)]))
+        })
       } catch(e) { reject(e) }
     }
     img.onerror = reject
