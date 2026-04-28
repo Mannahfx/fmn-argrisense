@@ -7,33 +7,15 @@ let _model = null
 
 async function loadModel() {
   if (_model) return _model
-  const tf = window.tf
-  try {
-    // Try loadLayersModel first (standard format)
-    _model = await tf.loadLayersModel('/cassava_tfjs_model/model.json')
-  } catch(e1) {
-    try {
-      // Fallback: try loadGraphModel (SavedModel/GraphDef format)
-      _model = await tf.loadGraphModel('/cassava_tfjs_model/model.json')
-    } catch(e2) {
-      throw new Error('Could not load model: ' + e1.message)
-    }
-  }
+  _model = await window.tf.loadLayersModel('/cassava_tfjs_model/model.json')
   return _model
 }
 
-// GraphModel predict wrapper — handles both model types
 async function predictWithModel(model, tensor) {
-  try {
-    // LayersModel
-    const out = model.predict(tensor)
-    return Array.from(out.dataSync())
-  } catch {
-    // GraphModel
-    const out = model.execute(tensor)
-    if (Array.isArray(out)) return Array.from(out[0].dataSync())
-    return Array.from(out.dataSync())
-  }
+  const out = model.predict(tensor)
+  const scores = Array.from(out.dataSync())
+  out.dispose()
+  return scores
 }
 
 async function runAI(file) {
